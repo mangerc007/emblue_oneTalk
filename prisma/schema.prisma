@@ -1,0 +1,270 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      UserRole @default(AGENT)
+  avatarUrl String?
+
+  cases    ActivationCase[]
+  messages AssistantMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  AGENT
+  CLIENT
+}
+
+// ─────────────────────────────────────────────
+// BUSINESS
+// ─────────────────────────────────────────────
+
+model Business {
+  id          String  @id @default(cuid())
+  name        String
+  legalName   String?
+  taxId       String?
+  website     String?
+  phone       String?
+  email       String?
+  addressLine String?
+  city        String?
+  country     String?
+  industry    String?
+  description String?
+
+  // Meta integration fields (ready for real integration)
+  metaBusinessId String?
+  metaPageId     String?
+  metaPageName   String?
+
+  cases ActivationCase[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("businesses")
+}
+
+// ─────────────────────────────────────────────
+// ACTIVATION CASE
+// ─────────────────────────────────────────────
+
+model ActivationCase {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  assignedToId String?
+  assignedTo   User?   @relation(fields: [assignedToId], references: [id])
+
+  status      CaseStatus @default(ACTIVE)
+  progressPct Int        @default(0)
+  notes       String?
+
+  // OneTalk integration fields (ready for real integration)
+  oneTalkInboxId   String?
+  oneTalkInboxName String?
+  associatedAt     DateTime?
+
+  steps      ActivationStep[]
+  documents  BusinessDocument[]
+  statusLogs VerificationStatusLog[]
+  messages   AssistantMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("activation_cases")
+}
+
+enum CaseStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+  BLOCKED
+}
+
+// ─────────────────────────────────────────────
+// ACTIVATION STEPS
+// ─────────────────────────────────────────────
+
+model ActivationStep {
+  id     String         @id @default(cuid())
+  caseId String
+  case   ActivationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  type   StepType
+  status StepStatus @default(NOT_STARTED)
+  order  Int
+
+  // Step-specific data stored as JSON for flexibility
+  formData      Json?
+  blockedReason String?
+  notes         String?
+  completedAt   DateTime?
+
+  checklistItems StepChecklistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([caseId, type])
+  @@map("activation_steps")
+}
+
+enum StepType {
+  BUSINESS_MANAGER
+  BUSINESS_INFO
+  LEGAL_DOCUMENTS
+  START_VERIFICATION
+  VERIFICATION_WIZARD
+  META_REVIEW
+  ONETALK_ASSOCIATION
+}
+
+enum StepStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+}
+
+// ─────────────────────────────────────────────
+// CHECKLIST ITEMS
+// ─────────────────────────────────────────────
+
+model StepChecklistItem {
+  id     String         @id @default(cuid())
+  stepId String
+  step   ActivationStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  key         String
+  label       String
+  description String?
+  required    Boolean   @default(true)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([stepId, key])
+  @@map("step_checklist_items")
+}
+
+// ─────────────────────────────────────────────
+// BUSINESS DOCUMENTS
+// ─────────────────────────────────────────────
+
+model BusinessDocument {
+  id     String         @id @default(cuid())
+  caseId String
+  case   ActivationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  type     DocumentType
+  name     String
+  status   DocumentStatus @default(MISSING)
+  fileUrl  String?
+  fileName String?
+  fileSize Int?
+  mimeType String?
+  notes    String?
+
+  uploadedAt  DateTime?
+  validatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("business_documents")
+}
+
+enum DocumentType {
+  BUSINESS_REGISTRATION
+  TAX_CERTIFICATE
+  UTILITY_BILL
+  BANK_STATEMENT
+  ID_DOCUMENT
+  META_BUSINESS_VERIFICATION
+  OTHER
+}
+
+enum DocumentStatus {
+  MISSING
+  UPLOADED
+  VALIDATED
+  OBSERVED
+  REJECTED
+}
+
+// ─────────────────────────────────────────────
+// VERIFICATION STATUS LOG (Meta states)
+// ─────────────────────────────────────────────
+
+model VerificationStatusLog {
+  id     String         @id @default(cuid())
+  caseId String
+  case   ActivationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  status      MetaVerificationStatus
+  notes       String?
+  metaPayload Json?
+
+  createdAt DateTime @default(now())
+
+  @@map("verification_status_logs")
+}
+
+enum MetaVerificationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_INFORMATION
+}
+
+// ─────────────────────────────────────────────
+// ASSISTANT MESSAGES
+// ─────────────────────────────────────────────
+
+model AssistantMessage {
+  id     String         @id @default(cuid())
+  caseId String
+  case   ActivationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  role     MessageRole
+  content  String      @db.Text
+  stepType StepType?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@map("assistant_messages")
+}
+
+enum MessageRole {
+  ASSISTANT
+  USER
+}
